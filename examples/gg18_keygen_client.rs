@@ -32,19 +32,23 @@ fn main() {
         panic!("too few arguments")
     }
     //read parameters:
+    // t = 1, n = 3, 2/3 signing
     let data = fs::read_to_string("params.json")
         .expect("Unable to read params, make sure config file is present in the same folder ");
     let params: Params = serde_json::from_str(&data).unwrap();
+    // PARTIES = 3
     let PARTIES: u16 = params.parties.parse::<u16>().unwrap();
+    // THRESHOLD = 1
     let THRESHOLD: u16 = params.threshold.parse::<u16>().unwrap();
 
+    // build a Client
     let client = Client::new();
 
     // delay:
     let delay = time::Duration::from_millis(25);
     let params = Parameters {
-        threshold: THRESHOLD,
-        share_count: PARTIES,
+        threshold: THRESHOLD, // 1
+        share_count: PARTIES, // 3
     };
 
     //signup:
@@ -53,10 +57,13 @@ fn main() {
     };
     println!("number: {:?}, uuid: {:?}", party_num_int, uuid);
 
-    let party_keys = Keys::create(party_num_int);
+    // generate Keys as party_keys: {u_i, y_i, e_k, d_k, i} for party i (i represents party_num_int)
+    let party_keys = Keys::create(party_num_int); 
+    // generate the broadcasted commitment and decommitment of party i
     let (bc_i, decom_i) = party_keys.phase1_broadcast_phase3_proof_of_correct_key();
 
     // send commitment to ephemeral public keys, get round 1 commitments of other parties
+    // send commitment of party i to other parties
     assert!(broadcast(
         &client,
         party_num_int,
@@ -65,6 +72,7 @@ fn main() {
         uuid.clone()
     )
     .is_ok());
+    // get commitments of other parties
     let round1_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -74,14 +82,16 @@ fn main() {
         uuid.clone(),
     );
 
+    // get bc1_vec = [c_1, c_2, ..., c_n]
     let mut bc1_vec = round1_ans_vec
         .iter()
         .map(|m| serde_json::from_str::<KeyGenBroadcastMessage1>(m).unwrap())
-        .collect::<Vec<_>>();
+        .collect::<Vec<_>>(); 
 
     bc1_vec.insert(party_num_int as usize - 1, bc_i);
 
     // send ephemeral public keys and check commitments correctness
+    // send decommitment of party i to other parties
     assert!(broadcast(
         &client,
         party_num_int,
@@ -90,6 +100,7 @@ fn main() {
         uuid.clone()
     )
     .is_ok());
+    // get decommitments of other parities
     let round2_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -100,19 +111,28 @@ fn main() {
     );
 
     let mut j = 0;
-    let mut point_vec: Vec<Point<Secp256k1>> = Vec::new();
-    let mut decom_vec: Vec<KeyGenDecommitMessage1> = Vec::new();
-    let mut enc_keys: Vec<Vec<u8>> = Vec::new();
+    let mut point_vec: Vec<Point<Secp256k1>> = Vec::new();  // [y_1, y_2, ..., y_n]
+    let mut decom_vec: Vec<KeyGenDecommitMessage1> = Vec::new(); // [decom_1, decom_2, ..., decom_n]
+    let mut enc_keys: Vec<Vec<u8>> = Vec::new(); 
+    // length n-1, store the (n-1) aes encryption keys for party_1, party_2, ..., party_(i-1), party_(i+1), party_n
+    // 
+    
     for i in 1..=PARTIES {
+        // for party i, store y_i and decom_i
         if i == party_num_int {
             point_vec.push(decom_i.y_i.clone());
             decom_vec.push(decom_i.clone());
-        } else {
+        } 
+        // for other parties, store y_j and decom_j, and 
+        else {
             let decom_j: KeyGenDecommitMessage1 = serde_json::from_str(&round2_ans_vec[j]).unwrap();
             point_vec.push(decom_j.y_i.clone());
             decom_vec.push(decom_j.clone());
-            let key_bn: BigInt = (decom_j.y_i.clone() * party_keys.u_i.clone())
-                .x_coord()
+            // generate n-1 aes symmetric keys [ki1,ki2, ..., ki(i-1), ki(i+1), ..., kin]
+            // = [u_i*u_1*G, u_i*u_2*G, ..., u_i*u_(i-1)*G, u_i*u_(i+1)*G,...,u_i*u_n*G]
+            // in party j, he/her computes symmetric key: kji = u_j*u_i*G = kij
+            let key_bn: BigInt = (decom_j.y_i.clone() * party_keys.u_i.clone()) // y_j * u_i = u_j * G * u_i
+                .x_coord() // return x coordinate
                 .unwrap();
             let key_bytes = BigInt::to_bytes(&key_bn);
             let mut template: Vec<u8> = vec![0u8; AES_KEY_BYTES_LEN - key_bytes.len()];
@@ -122,9 +142,11 @@ fn main() {
         }
     }
 
-    let (head, tail) = point_vec.split_at(1);
-    let y_sum = tail.iter().fold(head[0].clone(), |acc, x| acc + x);
+    let (head, tail) = point_vec.split_at(1); // split the vector point_vec into point_vec[0] and other
+    let y_sum = tail.iter().fold(head[0].clone(), |acc, x| acc + x); 
+    // y_sum = X*G = sum(y_1, y_2, ..., y_n) = (u_1*G + .. + u_n*G), where X is the private key, X = u_1 + u_2 + ... + u_n
 
+    // According to feldmanVSS, generate the polynomial p_i and the shares of u_i for party i
     let (vss_scheme, secret_shares, _index) = party_keys
         .phase1_verify_com_phase3_verify_correct_key_phase2_distribute(
             &params, &decom_vec, &bc1_vec,
@@ -132,14 +154,17 @@ fn main() {
         .expect("invalid key");
 
     //////////////////////////////////////////////////////////////////////////////
-
+    // in this part, encrypt first and then send u_i's shares [s_i1, s_i2, ..., s_i(i-1), s_i(i+1), ..., s_in] to
+    // party 1, 2, ..., i-1, i+1, ..., n, store s_ii locally.
     let mut j = 0;
     for (k, i) in (1..=PARTIES).enumerate() {
         if i != party_num_int {
             // prepare encrypted ss for party i:
-            let key_i = &enc_keys[j];
+            let key_i = &enc_keys[j]; // key_i = key_j = kij, the symmetric key between party i and party j
             let plaintext = BigInt::to_bytes(&secret_shares[k].to_bigint());
-            let aead_pack_i = aes_encrypt(key_i, &plaintext);
+            let aead_pack_i = aes_encrypt(key_i, &plaintext); 
+            // aead_pack_i: the aes ciphertext of the share of u_i: AES(s_ij)
+            // send the AES(s_ij) to party j in the way of p2p
             assert!(sendp2p(
                 &client,
                 party_num_int,
@@ -149,7 +174,7 @@ fn main() {
                 uuid.clone()
             )
             .is_ok());
-            j += 1;
+            j += 1; //
         }
     }
 
@@ -257,7 +282,7 @@ fn main() {
         party_num_int,
         vss_scheme_vec,
         paillier_key_vec,
-        y_sum,
+        y_sum, // X*G the public key corresponding to private key X
     ))
     .unwrap();
     fs::write(env::args().nth(2).unwrap(), keygen_json).expect("Unable to save !");

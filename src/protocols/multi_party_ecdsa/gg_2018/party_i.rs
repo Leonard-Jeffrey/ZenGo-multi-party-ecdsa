@@ -39,7 +39,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Error::{self, InvalidCom, InvalidKey, InvalidSS, InvalidSig};
 
-const SECURITY: usize = 256;
+const SECURITY: usize = 256; // security parameter lambda
 
 #[derive(Debug)]
 pub struct Parameters {
@@ -145,6 +145,7 @@ pub struct SignatureRecid {
 }
 
 impl Keys {
+    // ++++++++++++++++++++++++++++++++++ TEE ++++++++++++++++++++++++++++++++++
     pub fn create(index: u16) -> Self {
         let u = Scalar::<Secp256k1>::random();
         let y = Point::generator() * &u;
@@ -159,6 +160,7 @@ impl Keys {
         }
     }
 
+    // ++++++++++++++++++++++++++++++++  TEE  ++++++++++++++++++++++++++++++++++
     // we recommend using safe primes if the code is used in production
     pub fn create_safe_prime(index: u16) -> Keys {
         let u = Scalar::<Secp256k1>::random();
@@ -174,6 +176,8 @@ impl Keys {
             party_index: index,
         }
     }
+
+    // ++++++++++++++++++++++++++++++++  TEE  ++++++++++++++++++++++++++++++++++
     pub fn create_from(u: Scalar<Secp256k1>, index: u16) -> Keys {
         let y = Point::generator() * &u;
         let (ek, dk) = Paillier::keypair().keys();
@@ -187,20 +191,25 @@ impl Keys {
         }
     }
 
+    // ++++++++++++++++++++++++++++++++  TEE  ++++++++++++++++++++++++++++++++++
+    //Func: input a Keys of party i, outputs (KeyGenBroadcastMessage1, KeyGenDecommitMessage1)
     pub fn phase1_broadcast_phase3_proof_of_correct_key(
         &self,
     ) -> (KeyGenBroadcastMessage1, KeyGenDecommitMessage1) {
+        // Given a security parameters i.e., SECURITY, generate a blind factor
         let blind_factor = BigInt::sample(SECURITY);
         let correct_key_proof = NiCorrectKeyProof::proof(&self.dk, None);
         let com = HashCommitment::<Sha256>::create_commitment_with_user_defined_randomness(
             &BigInt::from_bytes(self.y_i.to_bytes(true).as_ref()),
             &blind_factor,
         );
+        //The commitment1 to be broadcasted containing {ek, com, correct_key_proof}.
         let bcm1 = KeyGenBroadcastMessage1 {
             e: self.ek.clone(),
             com,
             correct_key_proof,
         };
+        //The decommitment1 to be broadcasted containing {blind_factor, y_i}
         let decom1 = KeyGenDecommitMessage1 {
             blind_factor,
             y_i: self.y_i.clone(),
@@ -208,6 +217,7 @@ impl Keys {
         (bcm1, decom1)
     }
 
+    // ++++++++++++++++++++++++++++++++  TEE  ++++++++++++++++++++++++++++++++++
     #[allow(clippy::type_complexity)]
     pub fn phase1_verify_com_phase3_verify_correct_key_phase2_distribute(
         &self,
@@ -230,6 +240,7 @@ impl Keys {
                     .is_ok()
         });
 
+       // according to the u_i of party i, generate the VSS shares and the corresponding proof
         let (vss_scheme, secret_shares) =
             VerifiableSS::share(params.threshold, params.share_count, &self.u_i);
         if correct_key_correct_decom_all {
