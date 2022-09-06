@@ -142,6 +142,8 @@ fn main() {
         }
     }
 
+    //////////////////////////////////////////////////////////////////////////
+    // compute y_sum = (u_1 + u_2 + ... + u_n)*G
     let (head, tail) = point_vec.split_at(1); // split the vector point_vec into point_vec[0] and other
     let y_sum = tail.iter().fold(head[0].clone(), |acc, x| acc + x); 
     // y_sum = X*G = sum(y_1, y_2, ..., y_n) = (u_1*G + .. + u_n*G), where X is the private key, X = u_1 + u_2 + ... + u_n
@@ -156,14 +158,18 @@ fn main() {
     //////////////////////////////////////////////////////////////////////////////
     // in this part, encrypt first and then send u_i's shares [s_i1, s_i2, ..., s_i(i-1), s_i(i+1), ..., s_in] to
     // party 1, 2, ..., i-1, i+1, ..., n, store s_ii locally.
+    // k: the index of secret_shares, 0,1,...,i-1,i+1,...,n-1
+    // i: the index of parties, 1,2,...,i-1,i+1,...n
+    // j: the index of encrykeys, 0,1,...,n-1
     let mut j = 0;
-    for (k, i) in (1..=PARTIES).enumerate() {
+    for (k, i) in (1..=PARTIES).enumerate() { //(index, value)
         if i != party_num_int {
             // prepare encrypted ss for party i:
-            let key_i = &enc_keys[j]; // key_i = key_j = kij, the symmetric key between party i and party j
+            let key_i = &enc_keys[j]; 
+            // key_i = key_j = kij, the symmetric key between party i and party j
             let plaintext = BigInt::to_bytes(&secret_shares[k].to_bigint());
             let aead_pack_i = aes_encrypt(key_i, &plaintext); 
-            // aead_pack_i: the aes ciphertext of the share of u_i: AES(s_ij)
+            // aead_pack_i: the aes ciphertext of the share s_ij of u_i: AES(s_ij)
             // send the AES(s_ij) to party j in the way of p2p
             assert!(sendp2p(
                 &client,
@@ -174,7 +180,7 @@ fn main() {
                 uuid.clone()
             )
             .is_ok());
-            j += 1; //
+            j += 1; 
         }
     }
 

@@ -1,19 +1,30 @@
 #![allow(dead_code)]
 
+///////////////////// IMPORT LIBRARIES /////////////////
+
+// import standard libraries: std
 use std::{env, thread, time, time::Duration};
 
+// import library: aes_gcm
 use aes_gcm::aead::{Aead, NewAead};
 use aes_gcm::{Aes256Gcm, Nonce};
 use rand::{rngs::OsRng, RngCore};
 
+// import library: curv
 use curv::{
     arithmetic::traits::Converter,
     elliptic::curves::{secp256_k1::Secp256k1, Point, Scalar},
     BigInt,
 };
 
+// import library: reqwest
 use reqwest::Client;
+
+// import library: serde
 use serde::{Deserialize, Serialize};
+
+
+//////////////////// DEFINE variebles, structs and functions ///////////////////
 
 pub type Key = String;
 
@@ -101,6 +112,7 @@ where
     None
 }
 
+// broadcast the {Ci, Di}
 pub fn broadcast(
     client: &Client,
     party_num: u16,
@@ -131,6 +143,7 @@ pub fn sendp2p(
     serde_json::from_str(&res_body).unwrap()
 }
 
+// receive other parties' broadcasted messages
 pub fn poll_for_broadcasts(
     client: &Client,
     party_num: u16,
