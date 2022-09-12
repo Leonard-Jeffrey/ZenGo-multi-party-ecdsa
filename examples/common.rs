@@ -89,6 +89,7 @@ pub fn aes_decrypt(key: &[u8], aead_pack: AEAD) -> Vec<u8> {
     out.unwrap()
 }
 
+// In gg18_keygen_client: postb(&client, "signupkeygen", key="signup-keygen")
 pub fn postb<T>(client: &Client, path: &str, body: T) -> Option<String>
 where
     T: serde::ser::Serialize,

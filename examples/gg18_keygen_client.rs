@@ -158,9 +158,9 @@ fn main() {
     //////////////////////////////////////////////////////////////////////////////
     // in this part, encrypt first and then send u_i's shares [s_i1, s_i2, ..., s_i(i-1), s_i(i+1), ..., s_in] to
     // party 1, 2, ..., i-1, i+1, ..., n, store s_ii locally.
-    // k: the index of secret_shares, 0,1,...,i-1,i+1,...,n-1
-    // i: the index of parties, 1,2,...,i-1,i+1,...n
-    // j: the index of encrykeys, 0,1,...,n-1
+    // k: the index of secret_shares, 0,1,...,n-1
+    // i: the index of parties, 1,2,...,n
+    // j: the index of encrykeys, 0,1,...,n-2
     let mut j = 0;
     for (k, i) in (1..=PARTIES).enumerate() { //(index, value)
         if i != party_num_int {
@@ -184,6 +184,9 @@ fn main() {
         }
     }
 
+    /////////////////////////////////////////////////////////////////////////
+    // Receive the AES ciphertexts of the shares [s_1i, s_2i, ..., s_(i-1)i, s_(i+1)i, ...,s_ni]
+    // from other parties, i.e., party_1, party_2, ..., party_(i-1), party_(i+1), ..., party_n
     let round3_ans_vec = poll_for_p2p(
         &client,
         party_num_int,
@@ -193,6 +196,9 @@ fn main() {
         uuid.clone(),
     );
 
+    // j: the index of round3_ans_vec, 0,1,...,n-2
+    // i: the index of parties, 1,2,...,n
+    // party_shares: the vector of shares, i.e., [s_1i, s_2i, ..., s_ii, ...,s_ni]
     let mut j = 0;
     let mut party_shares: Vec<Scalar<Secp256k1>> = Vec::new();
     for i in 1..=PARTIES {
@@ -210,7 +216,9 @@ fn main() {
         }
     }
 
-    // round 4: send vss commitments
+    ///////////////////////////////////////////////////////////////
+    // round 4: send vss commitments and receive vss commitments from other parties
+    // round4_ans_vec = [vss_scheme_1,...,vss_scheme_(i-1),vss_scheme_(i+1),...,vss_scheme_n)]
     assert!(broadcast(
         &client,
         party_num_int,
@@ -228,6 +236,10 @@ fn main() {
         uuid.clone(),
     );
 
+    // verify the commitments of all the shares
+    // i: the index of parties, 1,2,...,n
+    // j: the index of the vss commiment vector round4_ans_vec, 0,1,...,n-2
+    // vss_scheme_vec = [vss_scheme_1, ...., vss_scheme_n]
     let mut j = 0;
     let mut vss_scheme_vec: Vec<VerifiableSS<Secp256k1>> = Vec::new();
     for i in 1..=PARTIES {
@@ -251,7 +263,8 @@ fn main() {
         )
         .expect("invalid vss");
 
-    // round 5: send dlog proof
+    // round 5: send dlog proof and // receive dlog proofs from other parties
+    // dlog_proof_vec = [proof1, proof2,...,proofn]
     assert!(broadcast(
         &client,
         party_num_int,
@@ -260,6 +273,7 @@ fn main() {
         uuid.clone()
     )
     .is_ok());
+    
     let round5_ans_vec =
         poll_for_broadcasts(&client, party_num_int, PARTIES, delay, "round5", uuid);
 
@@ -275,6 +289,8 @@ fn main() {
             j += 1;
         }
     }
+    
+    // verify the proofs
     Keys::verify_dlog_proofs(&params, &dlog_proof_vec, &point_vec).expect("bad dlog proof");
 
     //save key to file:
@@ -283,16 +299,30 @@ fn main() {
         .collect::<Vec<EncryptionKey>>();
 
     let keygen_json = serde_json::to_string(&(
-        party_keys,
-        shared_keys,
-        party_num_int,
-        vss_scheme_vec,
-        paillier_key_vec,
+        party_keys, // party_keys = {u_i, y_i, ek, dk, i}
+        shared_keys, // {y, x_i}
+        party_num_int, // party index i
+        vss_scheme_vec, // [vss_scheme_1, vss_scheme_2, ..., vss_scheme_n]
+        /* vss_scheme = {
+            VerifiableSS {
+                parameters: ShamirSecretSharing {
+                    threshold: t,
+                    share_count: n,
+                },
+                commitments, //a vector [coef_1*G, coef_2*G, ...]
+                proof, // proof of u_i
+            },
+            SecretShares { shares, polynomial },
+        }
+        */
+        paillier_key_vec, // paillier public key
         y_sum, // X*G the public key corresponding to private key X
     ))
     .unwrap();
     fs::write(env::args().nth(2).unwrap(), keygen_json).expect("Unable to save !");
 }
+
+
 
 pub fn signup(client: &Client) -> Result<PartySignup, ()> {
     let key = "signup-keygen".to_string();
