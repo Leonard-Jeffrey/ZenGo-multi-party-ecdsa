@@ -27,6 +27,7 @@ use common::{
 
 #[allow(clippy::cognitive_complexity)]
 fn main() {
+    // verify the parameter number, not more than 4 and not less than 4, equals to 4
     if env::args().nth(4).is_some() {
         panic!("too many arguments")
     }

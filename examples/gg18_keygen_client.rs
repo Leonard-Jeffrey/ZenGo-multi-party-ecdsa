@@ -51,7 +51,7 @@ fn main() {
         share_count: PARTIES, // 3
     };
 
-    //signup:
+    //signup: 
     let (party_num_int, uuid) = match signup(&client).unwrap() {
         PartySignup { number, uuid } => (number, uuid),
     };
@@ -60,9 +60,10 @@ fn main() {
     // generate Keys as party_keys: {u_i, y_i, e_k, d_k, i} for party i (i represents party_num_int)
     let party_keys = Keys::create(party_num_int); 
     // generate the broadcasted commitment and decommitment of party i
+    // 
     let (bc_i, decom_i) = party_keys.phase1_broadcast_phase3_proof_of_correct_key();
 
-    // send commitment to ephemeral public keys, get round 1 commitments of other parties
+    // send commitment bc_i to ephemeral public keys, get round 1 commitments of other parties
     // send commitment of party i to other parties
     assert!(broadcast(
         &client,
@@ -72,7 +73,7 @@ fn main() {
         uuid.clone()
     )
     .is_ok());
-    // get commitments of other parties
+    // get commitments bc_1, bc_2, ..., bc_{i-1}, bc{i+1}, ..., bc_n of other parties
     let round1_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -82,12 +83,12 @@ fn main() {
         uuid.clone(),
     );
 
-    // get bc1_vec = [c_1, c_2, ..., c_n]
+    // get bc1_vec = [bc_1, bc_2, ..., bc_n]
     let mut bc1_vec = round1_ans_vec
         .iter()
         .map(|m| serde_json::from_str::<KeyGenBroadcastMessage1>(m).unwrap())
         .collect::<Vec<_>>(); 
-
+    // insert bc_i
     bc1_vec.insert(party_num_int as usize - 1, bc_i);
 
     // send ephemeral public keys and check commitments correctness
@@ -115,7 +116,7 @@ fn main() {
     let mut decom_vec: Vec<KeyGenDecommitMessage1> = Vec::new(); // [decom_1, decom_2, ..., decom_n]
     let mut enc_keys: Vec<Vec<u8>> = Vec::new(); 
     // length n-1, store the (n-1) aes encryption keys for party_1, party_2, ..., party_(i-1), party_(i+1), party_n
-    // 
+    
     
     for i in 1..=PARTIES {
         // for party i, store y_i and decom_i
@@ -289,7 +290,7 @@ fn main() {
             j += 1;
         }
     }
-    
+
     // verify the proofs
     Keys::verify_dlog_proofs(&params, &dlog_proof_vec, &point_vec).expect("bad dlog proof");
 

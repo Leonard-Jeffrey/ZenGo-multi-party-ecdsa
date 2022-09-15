@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashMap; ,L ,L ,L ,L ,L ,L
 use std::fs;
 use std::sync::RwLock;
 
@@ -32,10 +32,13 @@ fn get(
 fn set(db_mtx: &State<RwLock<HashMap<Key, String>>>, request: Json<Entry>) -> Json<Result<(), ()>> {
     let entry: Entry = request.0;
     let mut hm = db_mtx.write().unwrap();
+    // In broadcast, key = {party_num_int, "round1", uuid}, value = bc_i
     hm.insert(entry.key.clone(), entry.value);
     Json(Ok(()))
 }
 
+
+// In the phase of signup_keygen, assign the "number" and "uuid" for each party i in parties (e.g., 3)
 #[post("/signupkeygen", format = "json")]
 fn signup_keygen(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<PartySignup, ()>> {
     let data = fs::read_to_string("params.json")

@@ -90,6 +90,7 @@ pub fn aes_decrypt(key: &[u8], aead_pack: AEAD) -> Vec<u8> {
 }
 
 // In gg18_keygen_client: postb(&client, "signupkeygen", key="signup-keygen")
+// In gg18_sign_client: postb()
 pub fn postb<T>(client: &Client, path: &str, body: T) -> Option<String>
 where
     T: serde::ser::Serialize,
@@ -118,10 +119,11 @@ pub fn broadcast(
     client: &Client,
     party_num: u16,
     round: &str,
-    data: String,
+    data: String, // bc_i
     sender_uuid: String,
 ) -> Result<(), ()> {
     let key = format!("{}-{}-{}", party_num, round, sender_uuid);
+    // entry = {party_num, round, sender_uuid, data=bc_i}
     let entry = Entry { key, value: data };
 
     let res_body = postb(client, "set", entry).unwrap();
@@ -146,12 +148,12 @@ pub fn sendp2p(
 
 // receive other parties' broadcasted messages
 pub fn poll_for_broadcasts(
-    client: &Client,
-    party_num: u16,
-    n: u16,
-    delay: Duration,
-    round: &str,
-    sender_uuid: String,
+    client: &Client, // client
+    party_num: u16, // i
+    n: u16, // n
+    delay: Duration, // delay
+    round: &str, // round 
+    sender_uuid: String, // uuid
 ) -> Vec<String> {
     let mut ans_vec = Vec::new();
     for i in 1..=n {
