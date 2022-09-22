@@ -34,11 +34,14 @@ fn main() {
     if env::args().nth(3).is_none() {
         panic!("too few arguments")
     }
+
+    // get the message m to be signed from the parameter 3 (parameter 0, 1, 2, 3)
     let message_str = env::args().nth(3).unwrap_or_else(|| "".to_string());
     let message = match hex::decode(message_str.clone()) {
         Ok(x) => x,
         Err(_e) => message_str.as_bytes().to_vec(),
     };
+
     let message = &message[..];
     let client = Client::new();
     // delay:
@@ -46,6 +49,14 @@ fn main() {
     // read key file
     let data = fs::read_to_string(env::args().nth(2).unwrap())
         .expect("Unable to load keys, did you run keygen first? ");
+    
+        // the structure of the key file
+        // party_keys: { u_i, y_i = u_i*G, dk=(p, q), ek = n, party_index = i}
+        // shared_keys: {y = \sum y_i, x_i = \sum \lambda*u_ji}
+        // parti_id = i (1, 2, 3, 4 ...)
+        // VSS_scheme_vec = {vss_1 = (u_1*G, c_12*G,), vss_2 = (u_2), c_22*G, ...}, i.e., the two coefficients of the shamir polynomial
+        // paillier_key_vector = {n_1, n_2, n_3, ...}
+        // y_sum = Y_x (according to x-cordinate of a point, the y-cordinate is easily computed)
     let (party_keys, shared_keys, party_id, vss_scheme_vec, paillier_key_vector, y_sum): (
         Keys,
         SharedKeys,
@@ -67,15 +78,19 @@ fn main() {
     };
     println!("number: {:?}, uuid: {:?}", party_num_int, uuid);
 
-    // round 0: collect signers IDs
+    /*** round 0: collect signers IDs ***/
+    // {party_num_int, round0, uuid} as the key, {party_id} as the value
     assert!(broadcast(
         &client,
         party_num_int,
         "round0",
-        serde_json::to_string(&party_id).unwrap(),
+        serde_json::to_string(&party_id).unwrap(), // party's id: String the party index in keygen
         uuid.clone()
     )
     .is_ok());
+    // get other's party_ids
+    // get the party_ids (assigned in keygen) of the signing party 1, ..., {i-1},{i+1}, ..., t
+    // store them in round0_ans_vec
     let round0_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -85,6 +100,8 @@ fn main() {
         uuid.clone(),
     );
 
+    // move the {t-1} party_ids 1, ..., {i-1},{i+1}, ..., t 
+    // from round0_ans_vec to the signers_vec, i.e., 0, 1, ..., t-1
     let mut j = 0;
     let mut signers_vec: Vec<u16> = Vec::new();
     for i in 1..=THRESHOLD + 1 {
@@ -97,18 +114,34 @@ fn main() {
         }
     }
 
+    // party_keys = {u_i, y_i, ek, dk, party_id}, shared_keys = {y, x_i}
     let private = PartyPrivate::set_private(party_keys.clone(), shared_keys);
+    // 
 
+    // vss_scheme_vec[i] = {c_i0*G = u_i*G, c_i1*G}
+    // party_num_int - 1 = i-1 
     let sign_keys = SignKeys::create(
         &private,
         &vss_scheme_vec[usize::from(signers_vec[usize::from(party_num_int - 1)])],
         signers_vec[usize::from(party_num_int - 1)],
         &signers_vec,
     );
+    // sign_keys = 
+    // {
+    //         w_i, // w_i = li * x_i = \lambda_i * x_i
+    //         g_w_i, // g_w_i = w_i*G
+    //         k_i: Scalar::<Secp256k1>::random(), // k_i
+    //         gamma_i, // gamma_i
+    //         g_gamma_i, // g_gamma_i = gamma_i *G
+    // }
 
+    
     let xi_com_vec = Keys::get_commitments_to_xi(&vss_scheme_vec);
     //////////////////////////////////////////////////////////////////////////////
+    // 3. Commitment round: generate the commitments and decommitments of g_gamma_i in sign_keys
     let (com, decommit) = sign_keys.phase1_broadcast();
+    
+    // mta protocol: E(k_i)
     let (m_a_k, _) = MessageA::a(&sign_keys.k_i, &party_keys.ek, &[]);
     assert!(broadcast(
         &client,
@@ -118,6 +151,8 @@ fn main() {
         uuid.clone()
     )
     .is_ok());
+    
+    // get the other parties' commitments and ciphertexts: com, E(k_j) 
     let round1_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -130,13 +165,18 @@ fn main() {
     let mut j = 0;
     let mut bc1_vec: Vec<SignBroadcastPhase1> = Vec::new();
     let mut m_a_vec: Vec<MessageA> = Vec::new();
+    //MessageA =
+    // {
+    //    BibInt,
+    //    range_proof
+    // }
 
     for i in 1..THRESHOLD + 2 {
         if i == party_num_int {
             bc1_vec.push(com.clone());
         //   m_a_vec.push(m_a_k.clone());
         } else {
-            //     if signers_vec.contains(&(i as usize)) {
+            //   if signers_vec.contains(&(i as usize)) {
             let (bc1_j, m_a_party_j): (SignBroadcastPhase1, MessageA) =
                 serde_json::from_str(&round1_ans_vec[j]).unwrap();
             bc1_vec.push(bc1_j);
@@ -149,9 +189,13 @@ fn main() {
     assert_eq!(signers_vec.len(), bc1_vec.len());
 
     //////////////////////////////////////////////////////////////////////////////
+    // gamma_i
     let mut m_b_gamma_send_vec: Vec<MessageB> = Vec::new();
+    // beta_i
     let mut beta_vec: Vec<Scalar<Secp256k1>> = Vec::new();
+    // w_i
     let mut m_b_w_send_vec: Vec<MessageB> = Vec::new();
+    // niu_i
     let mut ni_vec: Vec<Scalar<Secp256k1>> = Vec::new();
     let mut j = 0;
     for i in 1..THRESHOLD + 2 {
@@ -216,6 +260,7 @@ fn main() {
         //     }
     }
 
+    // alpha and miu
     let mut alpha_vec: Vec<Scalar<Secp256k1>> = Vec::new();
     let mut miu_vec: Vec<Scalar<Secp256k1>> = Vec::new();
 
@@ -483,6 +528,7 @@ fn main() {
     let mut s_i_vec: Vec<Scalar<Secp256k1>> = Vec::new();
     format_vec_from_reads(&round9_ans_vec, party_num_int as usize, s_i, &mut s_i_vec);
 
+    // generate the signature and check the correctness of the signature
     s_i_vec.remove(usize::from(party_num_int - 1));
     let sig = local_sig
         .output_signature(&s_i_vec)
@@ -526,7 +572,9 @@ fn format_vec_from_reads<'a, T: serde::Deserialize<'a> + Clone>(
 
 pub fn signup(client: &Client) -> Result<PartySignup, ()> {
     let key = "signup-sign".to_string();
-
+    
+    // "signupsign" is the route function, key is the destination key of HashMap dm_mtx in SM_Manager;
+    // res_body is the corresponding vlaue of key
     let res_body = postb(client, "signupsign", key).unwrap();
     serde_json::from_str(&res_body).unwrap()
 }

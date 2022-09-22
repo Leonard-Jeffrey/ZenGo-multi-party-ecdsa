@@ -114,7 +114,8 @@ where
     None
 }
 
-// broadcast the {Ci, Di}
+//In keygen, broadcast the {Ci, Di}
+//In sign, broadcast the {party_id}
 pub fn broadcast(
     client: &Client,
     party_num: u16,
@@ -123,10 +124,17 @@ pub fn broadcast(
     sender_uuid: String,
 ) -> Result<(), ()> {
     let key = format!("{}-{}-{}", party_num, round, sender_uuid);
-    // entry = {party_num, round, sender_uuid, data=bc_i}
-    let entry = Entry { key, value: data };
 
+    //In keygen, entry = {party_num, round, sender_uuid, data=bc_i}
+    //In sign, entry = {party_num, round, sender_uuid, data=party_id}
+    let entry = Entry { key, value: data }; 
+    // (key value) is inserted to the HashMap of SM_Manager
+
+    // "set" decides the route function of SM_Manager
+    // the first part of entry is as the key, the second part as the value
     let res_body = postb(client, "set", entry).unwrap();
+
+    // the returned value is OK/ERROR
     serde_json::from_str(&res_body).unwrap()
 }
 
@@ -163,6 +171,8 @@ pub fn poll_for_broadcasts(
             loop {
                 // add delay to allow the server to process request:
                 thread::sleep(delay);
+                // the route function is "get" and the key is index, the returned value 
+                // is the corresponding value
                 let res_body = postb(client, "get", index.clone()).unwrap();
                 let answer: Result<Entry, ()> = serde_json::from_str(&res_body).unwrap();
                 if let Ok(answer) = answer {

@@ -1,4 +1,4 @@
-use std::collections::HashMap; ,L ,L ,L ,L ,L ,L
+use std::collections::HashMap;
 use std::fs;
 use std::sync::RwLock;
 
@@ -9,6 +9,7 @@ use uuid::Uuid;
 mod common;
 use common::{Entry, Index, Key, Params, PartySignup};
 
+// The route path: /get
 #[post("/get", format = "json", data = "<request>")]
 fn get(
     db_mtx: &State<RwLock<HashMap<Key, String>>>,
@@ -28,16 +29,18 @@ fn get(
     }
 }
 
+// The route path: /set
 #[post("/set", format = "json", data = "<request>")]
 fn set(db_mtx: &State<RwLock<HashMap<Key, String>>>, request: Json<Entry>) -> Json<Result<(), ()>> {
     let entry: Entry = request.0;
     let mut hm = db_mtx.write().unwrap();
-    // In broadcast, key = {party_num_int, "round1", uuid}, value = bc_i
+    // In keygen broadcast, key = {party_num_int, "round1", uuid}, value = bc_i
+    // In sign broadcast, key = {party_num_int, "round0", uuid}, value = party_id
     hm.insert(entry.key.clone(), entry.value);
     Json(Ok(()))
 }
 
-
+// The route path: /signupkeygen
 // In the phase of signup_keygen, assign the "number" and "uuid" for each party i in parties (e.g., 3)
 #[post("/signupkeygen", format = "json")]
 fn signup_keygen(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<PartySignup, ()>> {
@@ -70,6 +73,7 @@ fn signup_keygen(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<Pa
     Json(Ok(party_signup))
 }
 
+// The route path: /signupsign
 #[post("/signupsign", format = "json")]
 fn signup_sign(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<PartySignup, ()>> {
     //read parameters:
@@ -121,20 +125,24 @@ async fn main() {
 
     let party1 = 0;
     let party_signup_keygen = PartySignup {
-        number: party1,
-        uuid: uuid_keygen,
+        number: party1, // 0
+        uuid: uuid_keygen, // Uuid string: ##########
     };
     let party_signup_sign = PartySignup {
-        number: party1,
-        uuid: uuid_sign,
+        number: party1, // 0
+        uuid: uuid_sign, // Uuid string: **********
     };
     {
         let mut hm = db_mtx.write().unwrap();
         hm.insert(
-            keygen_key,
+            keygen_key, // "signup-keygen"
+            // 0, uuid ##
             serde_json::to_string(&party_signup_keygen).unwrap(),
         );
-        hm.insert(sign_key, serde_json::to_string(&party_signup_sign).unwrap());
+        hm.insert(
+            sign_key, // "signup-sign"
+            // 0, uuid **
+            serde_json::to_string(&party_signup_sign).unwrap());
     }
     /////////////////////////////////////////////////////////////////
     rocket::build()
