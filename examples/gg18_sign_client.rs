@@ -100,7 +100,7 @@ fn main() {
         uuid.clone(),
     );
 
-    // move the {t-1} party_ids 1, ..., {i-1},{i+1}, ..., t 
+    // move the {t-1} party_ids {i_1, i_2, ..., i_(t-1)} total t-1 party_ids 
     // from round0_ans_vec to the signers_vec, i.e., 0, 1, ..., t-1
     let mut j = 0;
     let mut signers_vec: Vec<u16> = Vec::new();
