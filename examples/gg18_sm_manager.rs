@@ -107,6 +107,40 @@ fn signup_reshare(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<P
 }
 
 
+// The route path: /signupkeygen
+// In the phase of signup_keygen, assign the "number" and "uuid" for each party i in parties (e.g., 3)
+#[post("/signupreshare2", format = "json")]
+fn signup_reshare2(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<PartySignup, ()>> {
+    let data = fs::read_to_string("params.json")
+        .expect("Unable to read params, make sure config file is present in the same folder ");
+    let params: Params = serde_json::from_str(&data).unwrap();
+    let parties = params.parties.parse::<u16>().unwrap();
+
+    let key = "signup-reshare2".to_string(); 
+
+    let party_signup = {
+        let hm = db_mtx.read().unwrap();
+        let value = hm.get(&key).unwrap();
+        let client_signup: PartySignup = serde_json::from_str(value).unwrap();
+        if client_signup.number < parties-1 {
+            PartySignup {
+                number: client_signup.number + 1,
+                uuid: client_signup.uuid,
+            }
+        } else {
+            PartySignup {
+                number: 1,
+                uuid: Uuid::new_v4().to_string(),
+            }
+        }
+    };
+
+    let mut hm = db_mtx.write().unwrap();
+    hm.insert(key, serde_json::to_string(&party_signup).unwrap());
+    Json(Ok(party_signup))
+}
+
+
 // The route path: /signupsign
 #[post("/signupsign", format = "json")]
 fn signup_sign(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<PartySignup, ()>> {
@@ -154,10 +188,12 @@ async fn main() {
     let keygen_key = "signup-keygen".to_string();
     let sign_key = "signup-sign".to_string();
     let reshare_key = "signup-reshare".to_string();
+    let reshare2_key = "signup-reshare2".to_string();
 
     let uuid_keygen = Uuid::new_v4().to_string();
     let uuid_sign = Uuid::new_v4().to_string();
     let uuid_reshare = Uuid::new_v4().to_string();
+    let uuid_reshare2 = Uuid::new_v4().to_string();
 
     let party1 = 0;
     let party_signup_keygen = PartySignup {
@@ -171,6 +207,10 @@ async fn main() {
     let party_signup_reshare = PartySignup {
         number: party1, // 0
         uuid: uuid_reshare, // Uuid string: ^^^^^^^^^^
+    };
+    let party_signup_reshare = PartySignup {
+        number: party1, // 0
+        uuid: uuid_reshare2, // UUid string: $$$$$$$$$
     };
     {
         let mut hm = db_mtx.write().unwrap();
@@ -187,10 +227,14 @@ async fn main() {
             reshare_key, // "signup-reshare"
             serde_json::to_string(&party_signup_reshare).unwrap(),
         );
+        hm.insert(
+            reshare2_key, // "signup-reshare2"
+            serde_json::to_string(&party_signup_reshare2).unwrap(),
+        );
     }
     /////////////////////////////////////////////////////////////////
     rocket::build()
-        .mount("/", routes![get, set, signup_keygen, signup_sign, signup_reshare])
+        .mount("/", routes![get, set, signup_keygen, signup_sign, signup_reshare, signup_reshare2])
         .manage(db_mtx)
         .launch()
         .await

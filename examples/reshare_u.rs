@@ -52,9 +52,9 @@ use common::{
 // }
 
 pub fn signup(client: &Client) -> Result<PartySignup, ()> {
-    let key = "signup-reshare".to_string();
+    let key = "signup-reshare2".to_string();
 
-    let res_body = postb(client, "signupreshare", key).unwrap();
+    let res_body = postb(client, "signupreshare2", key).unwrap();
     serde_json::from_str(&res_body).unwrap()
 }
 
@@ -73,9 +73,9 @@ fn main (){
         Some(filename) => filename,
         None => String::from("error"),
     };
+
     
-    
-    let data = std::fs::read_to_string(filename)
+    let data = fs::read_to_string(filename)
         .expect("Unable to read key information, make sure config file is present in the same folder ");
     let Key_Params: KeyParams = serde_json::from_str(&data).unwrap();
     //let u_i:Scalar<E> = Key_Params.keys.u_i.parse::<Scalar<E>>().unwrap();
@@ -87,13 +87,10 @@ fn main (){
     //     &signers_vec,
     // );
 
-    // Compute li and wi
-    vss_scheme = Key_Params.vss_scheme_vec[usize::from(Key_Params.party_num_int)];
-    let li = VerifiableSS::<Secp256k1>::map_share_to_new_params(&vss_scheme.parameters, Key_Params.party_num_int, s);
-
+    // get resharers_vec;
 
     // 从 params.json 中读取参数
-    // 默认 t = 1, n = 3, 2/3 signing
+    // 默认 t = 1, n = 3
     let data = fs::read_to_string("params.json")
         .expect("Unable to read params, make sure config file is present in the same folder ");
     let params: Params = serde_json::from_str(&data).unwrap();
@@ -101,7 +98,6 @@ fn main (){
     let PARTIES: u16 = params.parties.parse::<u16>().unwrap();
     // THRESHOLD = 1
     let THRESHOLD: u16 = params.threshold.parse::<u16>().unwrap();
-
 
     // build a Client
     let client = Client::new();
@@ -130,16 +126,60 @@ fn main (){
     //     party_index,
     // };
 
-    let party_keys = Keys{
-        u_i: Key_Params.keys.u_i,
-        y_i: Key_Params.keys.y_i,
-        dk: Key_Params.keys.dk,
-        ek: Key_Params.keys.ek,
-        party_index: party_num_int,
-    };
+    // let party_keys = Keys{
+    //     u_i: Key_Params.keys.u_i,
+    //     y_i: Key_Params.keys.y_i,
+    //     dk: Key_Params.keys.dk,
+    //     ek: Key_Params.keys.ek,
+    //     party_index: party_num_int,
+    // };
+
+    /*** round 0: collect resharers' IDs ***/
+    // {party_num_int, round0, uuid} as the key, {party_id} as the value
+    assert!(broadcast(
+        &client,
+        party_num_int,
+        "round0",
+        serde_json::to_string(&Key_Params.party_num_int).unwrap(), 
+        // party's id: the party index in keygen
+        uuid.clone()
+    )
+    .is_ok());
+    // get other's party_ids
+    // get the party_ids (assigned in keygen) of the signing party 1, ..., n-1
+    // store them in round0_ans_vec
+    let round0_ans_vec = poll_for_broadcasts(
+        &client,
+        party_num_int,
+        PARTIES - 1,
+        delay,
+        "round0",
+        uuid.clone(),
+    );
+
+    // move the {n-1} party_ids {i_1, i_2, ..., i_(n-1)} 
+    // from round0_ans_vec[0, 1, ..., n-2] to the resharers_vec {i_1 - 1, i_2 - 1, ..., i_(n-1) - 1}
+    let mut j = 0;
+    let mut signers_vec: Vec<u16> = Vec::new();
+    for i in 1..=PARTIES - 1 {
+        if i == party_num_int {
+            signers_vec.push(Key_Params.party_num_int - 1);
+        } else {
+            let signer_j: u16 = serde_json::from_str(&round0_ans_vec[j]).unwrap();
+            signers_vec.push(signer_j - 1);
+            j += 1;
+        }
+    }
+
+    // Compute li and wi
+    let vss_scheme = Key_Params.vss_scheme_vec[usize::from(Key_Params.party_num_int-1)];
+    let li = VerifiableSS::<Secp256k1>::map_share_to_new_params(&vss_scheme.parameters, Key_Params.party_num_int, &signers_vec);
+    let wi = li * Key_Params.shared_keys.x_i;
+
+    let u3_1 = wi - Key_Params.keys.u_i;
+
+
     // generate the broadcasted commitment and decommitment of party i
-
-
     let (bc_i, decom_i) = party_keys.phase1_broadcast_phase3_proof_of_correct_key();
 
     // send commitment bc_i to ephemeral public keys, get round 1 commitments of other parties
