@@ -73,6 +73,7 @@ fn main() {
         uuid.clone()
     )
     .is_ok());
+
     // get commitments bc_1, bc_2, ..., bc_{i-1}, bc{i+1}, ..., bc_n of other parties
     let round1_ans_vec = poll_for_broadcasts(
         &client,

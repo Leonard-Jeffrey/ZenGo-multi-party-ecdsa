@@ -56,6 +56,17 @@ pub struct Keys<E: Curve = Secp256k1> {
     pub party_index: u16,
 }
 
+// the key.store structure
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct KeyParams {
+    pub keys: Keys,
+    pub shared_keys: SharedKeys ,
+    pub party_num_int: u16,
+    pub vss_scheme_vec: Vec<VerifiableSS<Secp256k1>>,
+    pub paillier_key_vec: Vec<EncryptionKey>,
+    pub y_sum: Point<Secp256k1>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PartyPrivate {
     u_i: Scalar<Secp256k1>,
