@@ -208,7 +208,7 @@ async fn main() {
         number: party1, // 0
         uuid: uuid_reshare, // Uuid string: ^^^^^^^^^^
     };
-    let party_signup_reshare = PartySignup {
+    let party_signup_reshare2 = PartySignup {
         number: party1, // 0
         uuid: uuid_reshare2, // UUid string: $$$$$$$$$
     };
