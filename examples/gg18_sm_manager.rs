@@ -111,18 +111,18 @@ fn signup_reshare(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<P
 // In the phase of signup_keygen, assign the "number" and "uuid" for each party i in parties (e.g., 3)
 #[post("/signupreshare2", format = "json")]
 fn signup_reshare2(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<PartySignup, ()>> {
-    let data = fs::read_to_string("params.json")
+    let data = fs::read_to_string("params_reshare.json")
         .expect("Unable to read params, make sure config file is present in the same folder ");
     let params: Params = serde_json::from_str(&data).unwrap();
     let parties = params.parties.parse::<u16>().unwrap();
 
-    let key = "signup-reshare2".to_string(); 
+    let key = "signup-reshare2".to_string();
 
     let party_signup = {
         let hm = db_mtx.read().unwrap();
         let value = hm.get(&key).unwrap();
         let client_signup: PartySignup = serde_json::from_str(value).unwrap();
-        if client_signup.number < parties-1 {
+        if client_signup.number < parties {
             PartySignup {
                 number: client_signup.number + 1,
                 uuid: client_signup.uuid,

@@ -57,7 +57,7 @@ fn main() {
     };
     println!("number: {:?}, uuid: {:?}", party_num_int, uuid);
 
-    // generate Keys as party_keys: {u_i, y_i, e_k, d_k, i} for party i (i represents party_num_int)
+    // generate Keys as party_keys: {u_i, y_i, e_k, d , i} for party i (i represents party_num_int)
     let party_keys = Keys::create(party_num_int); 
     // generate the broadcasted commitment and decommitment of party i
     // 
@@ -302,6 +302,7 @@ fn main() {
 
     let keygen_json = serde_json::to_string(&(
         party_keys, // party_keys = {u_i, y_i, ek, dk, i}
+        //secret_shares, // The share
         shared_keys, // {y, x_i}
         party_num_int, // party index i
         vss_scheme_vec, // [vss_scheme_1, vss_scheme_2, ..., vss_scheme_n]

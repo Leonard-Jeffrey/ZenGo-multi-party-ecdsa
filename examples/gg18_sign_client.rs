@@ -89,7 +89,7 @@ fn main() {
     )
     .is_ok());
     // get other's party_ids
-    // get the party_ids (assigned in keygen) of the signing party 1, ..., {i-1},{i+1}, ..., t
+    // get the party_ids (assigned in keygen) of the signing party 1, 2 ..., t, i.e., {i_1, i_2, ..., i_(t-1)},{i+1}, ..., t
     // store them in round0_ans_vec
     let round0_ans_vec = poll_for_broadcasts(
         &client,
@@ -115,8 +115,14 @@ fn main() {
     }
 
     // party_keys = {u_i, y_i, ek, dk, party_id}, shared_keys = {y, x_i}
+
+    // pub struct PartyPrivate {
+    //     u_i: Scalar<Secp256k1>,
+    //     x_i: Scalar<Secp256k1>,
+    //     dk: DecryptionKey,
+    // }
     let private = PartyPrivate::set_private(party_keys.clone(), shared_keys);
-    // 
+    
 
     // vss_scheme_vec[i] = {c_i0*G = u_i*G, c_i1*G}
     // party_num_int - 1 = i-1 
