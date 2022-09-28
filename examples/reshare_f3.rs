@@ -387,7 +387,6 @@ fn main (){
     ))
     .unwrap();
     fs::write(env::args().nth(3).unwrap(), keygen_json).expect("Unable to save !");
-
 }
 
 
