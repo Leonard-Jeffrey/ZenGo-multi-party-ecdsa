@@ -170,7 +170,9 @@ fn main (){
 
     // The share of the party 3: u3_1 = wi - ui
     let u3_1: Scalar<curv::elliptic::curves::Secp256k1> = wi - &Key_Params.keys.u_i;
-   
+    println!("u3_1 = {:?}", u3_1);
+
+
     // The keys of party i
     let party_keys = Keys{
          u_i: Key_Params.keys.u_i,
@@ -404,101 +406,4 @@ fn main (){
     // output
     println!("");
     println!("\nThe share of party 3: {:?}\n", share3);
-
-
-    ///////////////////////////////////////////////////////////////
-    // round 5: send vss commitments and receive vss commitments from other parties
-    // round5_ans_vec = [vss_scheme_1,...,vss_scheme_(i-1),vss_scheme_(i+1),...,vss_scheme_n)]
-    assert!(broadcast(
-        &client,
-        party_num_int,
-        "round5: vss_i",
-        serde_json::to_string(&vss_scheme_i).unwrap(),
-        uuid.clone()
-    )
-    .is_ok());
-
-    let round5_ans_vec = poll_for_broadcasts(
-        &client,
-        party_num_int,
-        PARTIES-1,
-        delay,
-        "round5: vss_i",
-        uuid.clone(),
-    );
-
-    // verify the commitments of all the shares
-    // i: the index of parties, 1,2,...,n
-    // j: the index of the vss commiment vector round4_ans_vec, 0,1,...,n-2
-    // vss_scheme_vec = [vss_scheme_1, ...., vss_scheme_n]
-    let mut j = 0;
-    let mut vss_scheme_vec_i: Vec<VerifiableSS<Secp256k1>> = Vec::new();
-    for i in 1..=PARTIES-1 {
-        if i == party_num_int {
-            vss_scheme_vec_i.push(vss_scheme_i.clone());
-        } else {
-            let vss_scheme_j: VerifiableSS<Secp256k1> =
-                serde_json::from_str(&round5_ans_vec[j]).unwrap();
-            vss_scheme_vec_i.push(vss_scheme_j);
-            j += 1;
-        }
-    }
-    
-    ///////////////////////////////////////////////////////////////
-    // round 6: send vss commitments and receive vss commitments from other parties
-    // round6_ans_vec = [vss_scheme_1,...,vss_scheme_(i-1),vss_scheme_(i+1),...,vss_scheme_n)]
-    assert!(broadcast(
-        &client,
-        party_num_int,
-        "round6: vss",
-        serde_json::to_string(&vss_scheme).unwrap(),
-        uuid.clone()
-    )
-    .is_ok());
-
-    let round6_ans_vec = poll_for_broadcasts(
-        &client,
-        party_num_int,
-        PARTIES-1,
-        delay,
-        "round6: vss",
-        uuid.clone(),
-    );
-
-    // verify the commitments of all the shares
-    // i: the index of parties, 1,2,...,n
-    // j: the index of the vss commiment vector round4_ans_vec, 0,1,...,n-2
-    // vss_scheme_vec = [vss_scheme_1, ...., vss_scheme_n]
-    let mut j = 0;
-    let mut vss_scheme_vec: Vec<VerifiableSS<Secp256k1>> = Vec::new();
-    for i in 1..=PARTIES-1 {
-        if i == party_num_int {
-            vss_scheme_vec.push(vss_scheme.clone());
-        } else {
-            let vss_scheme_j: VerifiableSS<Secp256k1> =
-                serde_json::from_str(&round6_ans_vec[j]).unwrap();
-            vss_scheme_vec.push(vss_scheme_j);
-            j += 1;
-        }
-    }
-
-    for i in 0..=THRESHOLD{
-        vss_scheme_vec[0].commitments[i as usize] = &vss_scheme_vec[0].commitments[i as usize] + &vss_scheme_vec[1].commitments[i as usize];
-    }
-    vss_scheme_vec_i.push(vss_scheme_vec[0].clone());
-
-    let key_json = serde_json::to_string(&(
-        party_keys,
-        SharedKeys{
-            y: Key_Params.shared_keys.y, 
-            x_i: x_i,
-        } ,
-        party_num_int,
-        vss_scheme_vec_i,
-        Key_Params.paillier_key_vec,
-        Key_Params.y_sum,
-    ))
-    .unwrap();
-
-    fs::write(env::args().nth(3).unwrap(), key_json).expect("Unable to save !");
 }

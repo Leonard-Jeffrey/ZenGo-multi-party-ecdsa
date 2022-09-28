@@ -140,14 +140,13 @@ fn main() {
     //         gamma_i, // gamma_i
     //         g_gamma_i, // g_gamma_i = gamma_i *G
     // }
-
     
     let xi_com_vec = Keys::get_commitments_to_xi(&vss_scheme_vec);
     //////////////////////////////////////////////////////////////////////////////
     // 3. Commitment round: generate the commitments and decommitments of g_gamma_i in sign_keys
     let (com, decommit) = sign_keys.phase1_broadcast();
     
-    // mta protocol: E(k_i)
+    // mta protocol: c_i = E(k_i)
     let (m_a_k, _) = MessageA::a(&sign_keys.k_i, &party_keys.ek, &[]);
     assert!(broadcast(
         &client,
@@ -168,6 +167,7 @@ fn main() {
         uuid.clone(),
     );
 
+    // zk range proof
     let mut j = 0;
     let mut bc1_vec: Vec<SignBroadcastPhase1> = Vec::new();
     let mut m_a_vec: Vec<MessageA> = Vec::new();
@@ -295,6 +295,9 @@ fn main() {
         }
     }
     //////////////////////////////////////////////////////////////////////////////
+    /// 
+    
+    // send delta_i to other parties and get others' delta_j
     let delta_i = sign_keys.phase2_delta_i(&alpha_vec, &beta_vec);
     let sigma = sign_keys.phase2_sigma_i(&miu_vec, &ni_vec);
 
@@ -321,6 +324,7 @@ fn main() {
         delta_i,
         &mut delta_vec,
     );
+    // delta^-1
     let delta_inv = SignKeys::phase3_reconstruct_delta(&delta_vec);
 
     //////////////////////////////////////////////////////////////////////////////
