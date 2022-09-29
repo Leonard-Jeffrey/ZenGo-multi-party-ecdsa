@@ -265,6 +265,16 @@ fn main() {
         )
         .expect("invalid vss");
 
+    // println!("p{party_num_int},1 = {:?}\n", BigInt::to_bytes(&party_shares[0].to_bigint()));
+    // println!("p{party_num_int},2 = {:?}\n", BigInt::to_bytes(&party_shares[1].to_bigint()));
+    // println!("p{party_num_int},3 = {:?}\n", BigInt::to_bytes(&party_shares[2].to_bigint()));
+    // println!("x_i = {:?}\n", BigInt::to_bytes(&shared_keys.x_i.to_bigint()));
+
+    // println!("p{party_num_int},1 = {:?}\n", &party_shares[0]);
+    // println!("p{party_num_int},2 = {:?}\n", &party_shares[1]);
+    // println!("p{party_num_int},3 = {:?}\n", &party_shares[2]);
+    // println!("x_i = {:?}\n", &shared_keys.x_i);
+
     // round 5: send dlog proof and // receive dlog proofs from other parties
     // dlog_proof_vec = [proof1, proof2,...,proofn]
     assert!(broadcast(

@@ -132,6 +132,9 @@ fn main() {
         signers_vec[usize::from(party_num_int - 1)],
         &signers_vec,
     );
+
+
+    println!("wi = {:?}", sign_keys.w_i);
     // sign_keys = 
     // {
     //         w_i, // w_i = li * x_i = \lambda_i * x_i

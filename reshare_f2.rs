@@ -1,65 +1,47 @@
 #![allow(non_snake_case)]
-// To regenerate the key shares w_i of party 1, 2, ..., n 
-// of the private key u = u_1 + u_2 + ... + u_i
-// 1. party_i owns u_i, y_i = u_i*G, while x_i/w_i has been dropped.
-// 2.1 owns the polynomial P_i (coefficients, u_i, t) 
-// 2.2 drops the polynomial P_i
+
 use curv::{
-    arithmetic::traits::Converter,
-    // VSS algorithm
+    arithmetic::traits::*,
     cryptographic_primitives::{
+        proofs::sigma_correct_homomorphic_elgamal_enc::HomoELGamalProof,
         proofs::sigma_dlog::DLogProof, secret_sharing::feldman_vss::VerifiableSS,
     },
-    // basic operations on elliptic curve 
     elliptic::curves::{secp256_k1::Secp256k1, Point, Scalar},
-    // BigInt type
     BigInt,
-};   
-
-use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::{
-    KeyGenBroadcastMessage1, KeyGenDecommitMessage1, Keys, KeyParams, Parameters,
-    SignKeys, SharedKeys,
 };
+use multi_party_ecdsa::protocols::multi_party_ecdsa::gg_2018::party_i::{
+    Keys, LocalSignature, PartyPrivate, Phase5ADecom1, Phase5Com1, Phase5Com2, Phase5DDecom2,
+    SharedKeys, SignBroadcastPhase1, SignDecommitPhase1, SignKeys, Parameters, KeyGenBroadcastMessage1, 
+    KeyGenDecommitMessage1
+};
+use multi_party_ecdsa::utilities::mta::*;
+use sha2::Sha256;
 
-// paillier encrytpion
 use paillier::EncryptionKey;
 use reqwest::Client;
-use sha2::Sha256;
 use std::{env, fs, time};
 
-// common tools: 
-// 1: aes encrytion/decryption algorithms, 
-// 2: broadcast/poll_for_broadcasts, postb, sendp2p, poll_for_p2p, 
-// 3: Params, PartySignup, AEAD, AES_KEY_BYTES_LEN
 mod common;
 use common::{
-    aes_decrypt, aes_encrypt, 
-    broadcast, poll_for_broadcasts, poll_for_p2p, postb, sendp2p, 
-    Params,PartySignup, AEAD, AES_KEY_BYTES_LEN,
+    broadcast, check_sig, poll_for_broadcasts, poll_for_p2p, postb, sendp2p, Params, PartySignup,
+    aes_decrypt, aes_encrypt, AEAD, AES_KEY_BYTES_LEN,
 };
 
-
-// // the key.store structure
-// #[derive(Serialize, Deserialize)]
-// pub struct KeyParams {
-//     pub keys: Keys,
-//     pub shared_keys: SharedKeys ,
-//     pub party_num_int: u16,
-//     pub vss_scheme_vec: Vec<VerifiableSS<Secp256k1>>,
-//     pub paillier_key_vec: Vec<EncryptionKey>,
-//     pub y_sum: Point<Secp256k1>,
-// }
-
 pub fn signup(client: &Client) -> Result<PartySignup, ()> {
+    //let key = "signup-sign".to_string();
     let key = "signup-reshare2".to_string();
-
+    
+    // "signupsign" is the route function, key is the destination key of HashMap dm_mtx in SM_Manager;
+    // res_body is the corresponding vlaue of key
+    //let res_body = postb(client, "signupsign", key).unwrap();
     let res_body = postb(client, "signupreshare2", key).unwrap();
     serde_json::from_str(&res_body).unwrap()
 }
 
-fn main (){
 
-    // ./reshare_f2 http://127.0.0.1:8000 key.store reshare_key.store
+#[allow(clippy::cognitive_complexity)]
+fn main() {
+    // verify the parameter number, not more than 4 and not less than 4, equals to 4
     if env::args().nth(4).is_some() {
         panic!("too many arguments")
     }
@@ -67,129 +49,135 @@ fn main (){
         panic!("too few arguments")
     }
 
-    // 从 key.store 中读取 u_i, x_i
-    let filename = match env::args().nth(2){
-        Some(filename) => filename,
-        None => String::from("error"),
-    };
+    let client = Client::new();
+    // delay:
+    let delay = time::Duration::from_millis(25);
+    // read key file
+    let data = fs::read_to_string(env::args().nth(2).unwrap())
+        .expect("Unable to load keys, did you run keygen first? ");
     
-    let data = fs::read_to_string(filename)
-        .expect("Unable to read key information, make sure config file is present in the same folder ");
-    let Key_Params: KeyParams = serde_json::from_str(&data).unwrap();
+    // the structure of the key file
+    // party_keys: { u_i, y_i = u_i*G, dk=(p, q), ek = n, party_index = i}
+    // shared_keys: {y = \sum y_i, x_i = \sum \lambda*u_ji}
+    // parti_id = i (1, 2, 3, 4 ...)
+    // VSS_scheme_vec = {vss_1 = (u_1*G, c_12*G,), vss_2 = (u_2), c_22*G, ...}, i.e., the two coefficients of the shamir polynomial
+    // paillier_key_vector = {n_1, n_2, n_3, ...}
+    // y_sum = Y_x (according to x-cordinate of a point, the y-cordinate is easily computed)
+    let (party_keys, shared_keys, party_id, vss_scheme_vec, paillier_key_vector, y_sum): (
+        Keys,
+        SharedKeys,
+        u16,
+        Vec<VerifiableSS<Secp256k1>>,
+        Vec<EncryptionKey>,
+        Point<Secp256k1>,
+    ) = serde_json::from_str(&data).unwrap();
 
-    // 从 params.json 中读取参数
-    // 默认 t = 1, n = 3
+    // println!("\nvss_scheme_vec-------- 11111:: {:?}", vss_scheme_vec[0].commitments[0]);
+    // println!("\nvss_scheme_vec-------- 22222:: {:?}", vss_scheme_vec[0].commitments[1]);
+
+    // println!("\nvss_scheme_vec-------- 33333:: {:?}", vss_scheme_vec[1].commitments[0]);
+    // println!("\nvss_scheme_vec-------- 44444:: {:?}", vss_scheme_vec[1].commitments[1]);
+
+    // println!("\nvss_scheme_vec-------- 11111 + 3333:: {:?}", &vss_scheme_vec[0].commitments[0] + &vss_scheme_vec[1].commitments[0]);
+    // println!("\nvss_scheme_vec-------- 22222 + 4444:: {:?}", &vss_scheme_vec[0].commitments[1] + &vss_scheme_vec[1].commitments[1]);
+
+    //read parameters:
     let data = fs::read_to_string("params.json")
         .expect("Unable to read params, make sure config file is present in the same folder ");
     let params: Params = serde_json::from_str(&data).unwrap();
-    // PARTIES = 3, THRESHOLD = 1
+    let THRESHOLD = params.threshold.parse::<u16>().unwrap();
     let PARTIES: u16 = params.parties.parse::<u16>().unwrap();
-    let THRESHOLD: u16 = params.threshold.parse::<u16>().unwrap();
 
-    // build a Client
-    let client = Client::new();
-
-    // delay:
-    let delay = time::Duration::from_millis(25);
     let params = Parameters {
         threshold: THRESHOLD, // 1
         share_count: PARTIES, // 3
     };
 
-    //signup: 
+    //signup:
     let (party_num_int, uuid) = match signup(&client).unwrap() {
         PartySignup { number, uuid } => (number, uuid),
     };
     println!("number: {:?}, uuid: {:?}", party_num_int, uuid);
 
-
-//////////////////////////////////////////////////////////////////////////////////////////
-    // Regenerate the private key reshares for party i
-    // generate Keys as party_keys: {u_i, y_i, e_k, d_k, i} for party i (i represents party_num_int)
-    //let party_keys = Keys::create(party_num_int); 
-    // let party_keys = Keys{
-    //     u_i,
-    //     y_i,
-    //     dk:,
-    //     ek:,
-    //     party_index,
-    // };
-
-    // let party_keys = Keys{
-    //     u_i: Key_Params.keys.u_i,
-    //     y_i: Key_Params.keys.y_i,
-    //     dk: Key_Params.keys.dk,
-    //     ek: Key_Params.keys.ek,
-    //     party_index: party_num_int,
-    // };
-
-    /*** round 0: collect resharers' IDs ***/
-    // {party_num_int, round0, uuid} as the key, {party_id} as the value
+    /*** round 0: collect signers IDs ***/
     assert!(broadcast(
         &client,
         party_num_int,
         "round0",
-        serde_json::to_string(&Key_Params.party_num_int).unwrap(), 
-        // party's id: the party index in keygen
+        serde_json::to_string(&party_id).unwrap(), // party's id: String the party index in keygen
         uuid.clone()
     )
     .is_ok());
-
     // get other's party_ids
-    // get the party_ids (assigned in keygen) of the signing party 1, ..., n-1
+    // get the party_ids (assigned in keygen) of the signing party 1, 2 ..., t, i.e., {i_1, i_2, ..., i_(t-1)},{i+1}, ..., t
     // store them in round0_ans_vec
     let round0_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
+        //THRESHOLD + 1,
         PARTIES - 1,
         delay,
         "round0",
         uuid.clone(),
     );
 
-
-    // move the {n-1} party_ids {i_1, i_2, ..., i_(n-1)} 
-    // from round0_ans_vec[0, 1, ..., n-2] to the resharers_vec {i_1 - 1, i_2 - 1, ..., i_(n-1) - 1}
+    // move the {t-1} party_ids {i_1, i_2, ..., i_(t-1)} total t-1 party_ids 
+    // from round0_ans_vec to the signers_vec, i.e., 0, 1, ..., t-1
     let mut j = 0;
     let mut signers_vec: Vec<u16> = Vec::new();
-    for i in 1..=PARTIES - 1 {
+    for i in 1..=PARTIES-1 {
         if i == party_num_int {
-            signers_vec.push(Key_Params.party_num_int);
+            signers_vec.push(party_id - 1);
         } else {
             let signer_j: u16 = serde_json::from_str(&round0_ans_vec[j]).unwrap();
-            signers_vec.push(signer_j);
+            signers_vec.push(signer_j - 1);
             j += 1;
         }
     }
 
-    // Compute li and wi
-    let vss_scheme = &Key_Params.vss_scheme_vec[usize::from(Key_Params.party_num_int-1)];
-    let li = VerifiableSS::<Secp256k1>::map_share_to_new_params(&vss_scheme.parameters, Key_Params.party_num_int, &signers_vec);
-    let wi = li * &Key_Params.shared_keys.x_i;
-    println!("wi = {:?}", wi);
+    // for i in 1..= PARTIES-1 {
+    //     println!("{}", signers_vec[(i-1) as usize]);
+    // }
 
+    let private = PartyPrivate::set_private(party_keys.clone(), shared_keys.clone());
+    
+
+    let sign_keys = SignKeys::create(
+        &private,
+        &vss_scheme_vec[usize::from(signers_vec[usize::from(party_num_int - 1)])],
+        signers_vec[usize::from(party_num_int - 1)],
+        &signers_vec,
+    );
+
+    let wi = sign_keys.w_i;
+
+    ///////////////////////////////////////////////////////////////////
     // The share of the party 3: u3_1 = wi - ui
-    let u3_1: Scalar<curv::elliptic::curves::Secp256k1> = wi - &Key_Params.keys.u_i;
-    println!("u3_1 = {:?}", u3_1);
-
-
-    // The keys of party i
-    let party_keys = Keys{
-         u_i: Key_Params.keys.u_i,
-         y_i: Key_Params.keys.y_i,
-         dk: Key_Params.keys.dk,
-         ek: Key_Params.keys.ek,
-         party_index: party_num_int,
-     };
-
+    let u3_1: Scalar<Secp256k1> = &wi - &party_keys.u_i;
+    
+    
     // According to the ui of party i, generate the VSS shares and the corresponding proof
     let (vss_scheme_i, secret_shares_i) =
         VerifiableSS::share(params.threshold, params.share_count, &party_keys.u_i);
 
+    let secret_shares_i: Vec<Scalar<Secp256k1>> = secret_shares_i.to_vec();
+    
+    // println!("p{party_num_int},1 = {:?}\n", &secret_shares_i[0]);
+    // println!("p{party_num_int},2 = {:?}\n", &secret_shares_i[1]);
+    // println!("p{party_num_int},3 = {:?}\n", &secret_shares_i[2]);
+
     // According to the u3_1 of party 3, generate the VSS shares and the corresponding proof
     // p31' p32' p33'
-    let (vss_scheme, secret_shares) = 
+    let (vss_scheme_j, secret_shares_j) = 
         VerifiableSS::share(params.threshold, params.share_count, &u3_1);
+    let secret_shares_j: Vec<Scalar<Secp256k1>> = secret_shares_j.to_vec();
+
+    println!("p3,1 = {:?}\n", &secret_shares_j[0]);
+    println!("p3,2 = {:?}\n", &secret_shares_j[1]);
+    println!("p3,3 = {:?}\n", &secret_shares_j[2]);
+
+    println!("p3,1 + p32 = {:?}\n", &secret_shares_j[0] + &secret_shares_j[1]);
+    println!("p3,2 + p33 = {:?}\n", &secret_shares_j[1] + &secret_shares_j[2]);
 
     let (bc_i, decom_i) = party_keys.phase1_broadcast_phase3_proof_of_correct_key();
     
@@ -203,8 +191,6 @@ fn main (){
         uuid.clone()
     )
     .is_ok());
-
-    // get decommitments of other parities
     let round1_ans_vec = poll_for_broadcasts(
         &client,
         party_num_int,
@@ -220,13 +206,13 @@ fn main (){
     let mut decom_vec: Vec<KeyGenDecommitMessage1> = Vec::new(); // [decom_1, decom_2, ..., decom_n]
     let mut enc_keys: Vec<Vec<u8>> = Vec::new(); 
 
-    for i in 1..=PARTIES-1 {
+    for i in 1..= PARTIES-1 {
         // for party i, store y_i and decom_i
         if i == party_num_int {
             point_vec.push(decom_i.y_i.clone());
             decom_vec.push(decom_i.clone());
         } 
-        // for other parties, store y_j and decom_j, and 
+        // for other parties, store y_j and decom_j
         else {
             let decom_j: KeyGenDecommitMessage1 = serde_json::from_str(&round1_ans_vec[j]).unwrap();
             point_vec.push(decom_j.y_i.clone());
@@ -245,13 +231,6 @@ fn main (){
         }
     }
 
-    /////////////// test //////////////////
-    // output the enc keys
-    // println!("Enc key:");
-    // for i in 0..enc_keys.len(){
-    //     println!("{:?}", enc_keys[i]);
-    // }
-    
     // Encrypt and send the shares pi1, pi2, pi3 to the corresponding party
     let mut j = 0;
     for (k, i) in (1..=PARTIES-1).enumerate() { //(index, value)
@@ -260,10 +239,8 @@ fn main (){
             let key_i = &enc_keys[j]; 
             // key_i = key_j = kij, the symmetric key between party i and party j
             let plaintext = BigInt::to_bytes(&secret_shares_i[k].to_bigint());
-            //println!("send: secret_shares_{k}: {:?}", secret_shares_i[k]);
-            let aead_pack_i = aes_encrypt(key_i, &plaintext); 
-            // aead_pack_i: the aes ciphertext of the share s_ij of u_i: AES(s_ij)
-            // send the AES(s_ij) to party j in the way of p2p
+            println!("send: secret_shares_{k}: {:?}\n", secret_shares_i[k]);
+            let aead_pack_i = aes_encrypt(key_i, &plaintext);
             assert!(sendp2p(
                 &client,
                 party_num_int,
@@ -277,6 +254,7 @@ fn main (){
         }
     }
 
+    // round2_ans_vec = [pi]
     let round2_ans_vec = poll_for_p2p(
         &client,
         party_num_int,
@@ -287,10 +265,10 @@ fn main (){
     );
 
     let mut j = 0;
-    let mut party_shares: Vec<Scalar<Secp256k1>> = Vec::new();
+    let mut party_shares_i: Vec<Scalar<Secp256k1>> = Vec::new();
     for i in 1..=PARTIES-1 {
         if i == party_num_int{
-            party_shares.push(secret_shares_i[(i-1) as usize].clone());
+            party_shares_i.push(secret_shares_i[(i-1) as usize].clone());
         }
         else{
             let aead_pack: AEAD = serde_json::from_str(&round2_ans_vec[j]).unwrap();
@@ -298,31 +276,28 @@ fn main (){
             let out = aes_decrypt(key_i, aead_pack);
             let out_bn = BigInt::from_bytes(&out[..]);
             let out_fe = Scalar::<Secp256k1>::from(&out_bn);
-            party_shares.push(out_fe);
+            party_shares_i.push(out_fe);
             j += 1;
         }
     }
+    // party_shares = [p11, p21]
+    // party_shares = [p12, p22]
 
-    // let aead_pack: AEAD = serde_json::from_str(&round2_ans_vec[0]).unwrap();
-    // let key_i = &enc_keys[0];
-    // let out = aes_decrypt(key_i, aead_pack);
-    // let out_bn = BigInt::from_bytes(&out[..]);
-    // let ans = Scalar::<Secp256k1>::from(&out_bn);
-    // println!("receive: {:?}", ans);
-
+    let aead_pack: AEAD = serde_json::from_str(&round2_ans_vec[0]).unwrap();
+    let key_i = &enc_keys[0];
+    let out = aes_decrypt(key_i, aead_pack);
+    let out_bn = BigInt::from_bytes(&out[..]);
+    let ans = Scalar::<Secp256k1>::from(&out_bn);
+    println!("receive: {:?}\n", ans);
 
     // Encrypt and send the shares p31, p32, p33 to the corresponding party
     let mut j = 0;
     for (k, i) in (1..=PARTIES-1).enumerate() { //(index, value)
         if i != party_num_int {
-            // prepare encrypted ss for party i:
             let key_i = &enc_keys[j]; 
-            // key_i = key_j = kij, the symmetric key between party i and party j
-            let plaintext = BigInt::to_bytes(&secret_shares[k].to_bigint());
-            //println!("send: secret_shares_{k}: {:?}", secret_shares[k]);
+            let plaintext = BigInt::to_bytes(&secret_shares_j[k].to_bigint());
+            println!("send: secret_shares_j{k}: {:?}\n", secret_shares_j[k]);
             let aead_pack_i = aes_encrypt(key_i, &plaintext); 
-            // aead_pack_i: the aes ciphertext of the share s_ij of u_i: AES(s_ij)
-            // send the AES(s_ij) to party j in the way of p2p
             assert!(sendp2p(
                 &client,
                 party_num_int,
@@ -345,41 +320,68 @@ fn main (){
         uuid.clone(),
     );
 
+    let mut j = 0;
+    let mut party_shares_j: Vec<Scalar<Secp256k1>> = Vec::new();
+    for i in 1..=PARTIES-1 {
+        if i == party_num_int{
+            party_shares_j.push(secret_shares_j[(i-1) as usize].clone());
+        }
+        else{
+            let aead_pack: AEAD = serde_json::from_str(&round3_ans_vec[j]).unwrap();
+            let key_i = &enc_keys[j];
+            let out = aes_decrypt(key_i, aead_pack);
+            let out_bn = BigInt::from_bytes(&out[..]);
+            let out_fe = Scalar::<Secp256k1>::from(&out_bn);
+            party_shares_j.push(out_fe);
+            j += 1;
+        }
+    }
+    // party_shares_j = [p31', p31'']
+    // party_shares_j = [p32', p32'']
+
     let aead_pack: AEAD = serde_json::from_str(&round3_ans_vec[0]).unwrap();
     let key_i = &enc_keys[0];
     let out = aes_decrypt(key_i, aead_pack);
     let out_bn = BigInt::from_bytes(&out[..]);
     let ans = Scalar::<Secp256k1>::from(&out_bn);
+    println!("receive: {:?}\n", ans);
 
     // get the final party_shares
-    party_shares.push(&secret_shares[(party_num_int - 1) as usize] + &ans);
-
-   
-    // get the key share
-    // let mut x_i: Scalar<Secp256k1> = party_shares[0].clone();
-    // for i in 1..=PARTIES{
-    //     x_i = &x_i + party_shares[(i) as usize].clone(); 
+    //party_shares.push(&secret_shares[(party_num_int - 1) as usize] + &ans);
+    // for i in 1..PARTIES-1{
+    //     party_shares_j[0] = &party_shares_j[0] + &party_shares_j[i as usize];
     // }
 
-    let x_i: Scalar<Secp256k1> = party_shares.iter().sum();
+    for i in 0..party_shares_j.len(){
+        println!("pary_shares_j: {:?}\n", party_shares_j[i])
+    }
+    let p3i: Scalar<Secp256k1> = &party_shares_j[0] + &party_shares_j[1];
+    println!("p3i = {:?}\n",p3i);
+    
+    for i in 0..party_shares_i.len(){
+        println!("pary_shares_i: {:?}\n", party_shares_i[i])
+    }
+    println!("p3i = {:?}\n",p3i);
+    let x_i =  &p3i + &party_shares_i[0] + &party_shares_i[1];
+    println!("x{party_num_int} = {:?}\n", x_i);
 
     // Generate the share of party 3
     // Encrypt and send the shares p31, p32, p33 to the corresponding party
+    let hp3: Scalar<Secp256k1> = &secret_shares_j[(PARTIES-1) as usize] + &secret_shares_i[(PARTIES-1) as usize];
+    println!("hp3 = {:?}", hp3);
     let mut j = 0;
     for (k, i) in (1..=PARTIES-1).enumerate() { //(index, value)
         if i != party_num_int {
             // prepare encrypted ss for party i:
             let key_i = &enc_keys[j]; 
             // key_i = key_j = kij, the symmetric key between party i and party j
-            let plaintext = BigInt::to_bytes(&(&secret_shares[2] + &secret_shares_i[2]).to_bigint());
+            let plaintext = BigInt::to_bytes(&hp3.to_bigint());
             let aead_pack_i = aes_encrypt(key_i, &plaintext); 
-            // aead_pack_i: the aes ciphertext of the share s_ij of u_i: AES(s_ij)
-            // send the AES(s_ij) to party j in the way of p2p
             assert!(sendp2p(
                 &client,
                 party_num_int,
                 i,
-                "round4: p3i+p33'",
+                "round4: pi3+p33'",
                 serde_json::to_string(&aead_pack_i).unwrap(),
                 uuid.clone()
             )
@@ -393,7 +395,7 @@ fn main (){
         party_num_int,
         PARTIES-1,
         delay,
-        "round4: p3i+p33'",
+        "round4: pi3+p33'",
         uuid.clone(),
     );
 
@@ -402,9 +404,9 @@ fn main (){
     let out = aes_decrypt(key_i, aead_pack);
     let out_bn = BigInt::from_bytes(&out[..]);
     let ans = Scalar::<Secp256k1>::from(&out_bn);
-    let share3 = BigInt::to_bytes(&(&secret_shares[2] + &secret_shares_i[2] + &ans).to_bigint());
+    //println!("receive ans = {:?}", ans);
+    let share3 = BigInt::to_bytes(&(&hp3 + &ans).to_bigint());
     // output
     println!("");
     println!("\nThe share of party 3: {:?}\n", share3);
-
 }
